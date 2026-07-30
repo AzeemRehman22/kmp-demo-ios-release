@@ -34,15 +34,12 @@ jobs:
       - name: Grant execute permission to gradlew
         run: chmod +x ./gradlew
 
-      # This builds the Kotlin/Native framework for the iOS Simulator/Device
-      # and embeds it so Xcode can find it. Adjust the task name to match
-      # your composeApp / shared module name if different.
-      - name: Build KMP shared framework
-        run: |
-          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode \
-            -Pkotlin.native.cocoapods.platform=iphoneos \
-            -PXCODE_ARCH=arm64 \
-            -PCONFIGURATION=${{ github.event.inputs.build_type }}
+      # NOTE: We deliberately do NOT call
+      # `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode` manually here.
+      # That task needs env vars like ARCHS / PLATFORM_NAME / SDK_NAME, which
+      # only exist when Xcode itself invokes it via the app target's
+      # "Run Script" build phase. xcodebuild archive below triggers that
+      # build phase automatically, which in turn runs Gradle correctly.
 
       # Archive the iOS app WITHOUT code signing.
       # BrowserStack re-signs apps on upload, so we don't need an Apple
