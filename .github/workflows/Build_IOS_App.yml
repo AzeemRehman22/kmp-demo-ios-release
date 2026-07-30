@@ -1,37 +1,87 @@
-name: Build iOS App
+name: KMP iOS IPA Build (Debug/Release, Unsigned for BrowserStack)
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build configuration"
+        required: true
+        default: "Debug"
+        type: choice
+        options:
+          - Debug
+          - Release
 
 jobs:
-  build-ios:
+  build-ios-ipa:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          distribution: "temurin"
+          java-version: "17"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+      - name: Grant execute permission to gradlew
+        run: chmod +x ./gradlew
 
-      - name: Build KMP Framework
-        run: ./gradlew :composeApp:linkReleaseFrameworkIosArm64
-
-      - name: Build iOS App
+      # This builds the Kotlin/Native framework for the iOS Simulator/Device
+      # and embeds it so Xcode can find it. Adjust the task name to match
+      # your composeApp / shared module name if different.
+      - name: Build KMP shared framework
         run: |
-          cd iosApp
-          xcodebuild \
-            -project iosApp.xcodeproj \
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode \
+            -Pkotlin.native.cocoapods.platform=iphoneos \
+            -PXCODE_ARCH=arm64 \
+            -PCONFIGURATION=${{ github.event.inputs.build_type }}
+
+      # Archive the iOS app WITHOUT code signing.
+      # BrowserStack re-signs apps on upload, so we don't need an Apple
+      # Developer certificate or provisioning profile here.
+      - name: Archive iOS app (unsigned)
+        working-directory: iosApp
+        run: |
+          xcodebuild -workspace iosApp.xcworkspace \
             -scheme iosApp \
-            -configuration Release \
+            -configuration ${{ github.event.inputs.build_type }} \
             -sdk iphoneos \
-            build
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive
+
+      # xcodebuild -exportArchive normally needs an export options plist
+      # tied to a signing identity. Since we're going unsigned, we package
+      # the .app manually into an .ipa (a zipped Payload folder is all an
+      # .ipa really is).
+      - name: Package .ipa manually
+        run: |
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -r $RUNNER_TEMP/App.xcarchive/Products/Applications/*.app $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r app-${{ github.event.inputs.build_type }}.ipa Payload
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmp-ios-${{ github.event.inputs.build_type }}
+          path: ${{ runner.temp }}/app-${{ github.event.inputs.build_type }}.ipa
+
+      # Optional: publish as a GitHub Release instead of/in addition to an artifact
+      - name: Create GitHub Release with IPA
+        if: github.event.inputs.build_type == 'Release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-build-${{ github.run_number }}
+          files: ${{ runner.temp }}/app-${{ github.event.inputs.build_type }}.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
