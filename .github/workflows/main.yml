@@ -1,0 +1,46 @@
+name: KMP Android APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build configuration"
+        required: true
+        default: "Debug"
+        type: choice
+        options:
+          - Debug
+          - Release
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: gradle
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build APK
+        run: |
+          ./gradlew :composeApp:assemble${{ github.event.inputs.build_type }}
+
+      - name: Find generated APK
+        run: |
+          find composeApp/build/outputs/apk -type f -name "*.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmp-android-${{ github.event.inputs.build_type }}
+          path: composeApp/build/outputs/apk/**/*.apk
+```
