@@ -1,4 +1,3 @@
-```yaml
 name: KMP Android APK Build
 
 on:
