@@ -43,4 +43,3 @@ jobs:
         with:
           name: kmp-android-${{ github.event.inputs.build_type }}
           path: composeApp/build/outputs/apk/**/*.apk
-```
